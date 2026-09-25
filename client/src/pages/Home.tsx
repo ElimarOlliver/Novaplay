@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Hls from "hls.js";
+import streamHealth from "@/data/stream-health.json";
 import {
   Activity,
   AlertTriangle,
@@ -42,6 +43,7 @@ type Channel = {
   featured?: boolean;
   network?: string;
   website?: string;
+  healthReason?: string;
 };
 
 type DatabaseChannel = {
@@ -51,6 +53,16 @@ type DatabaseChannel = {
   categories: string[];
   network: string | null;
   website: string | null;
+};
+
+type StreamHealthRecord = {
+  url: string;
+  working: boolean;
+  reason: string;
+  name?: string;
+  tvg_id?: string;
+  logo?: string;
+  group?: string;
 };
 
 type PlaylistSource = {
@@ -70,6 +82,7 @@ const PLAYLIST_SOURCES: PlaylistSource[] = [
 ];
 
 const DATABASE_API_URL = "https://iptv-org.github.io/api/channels.json";
+const HEALTH_BY_URL = new Map((streamHealth.results as StreamHealthRecord[]).map((record) => [record.url, record]));
 
 const FALLBACK_CHANNELS: Channel[] = [
   {
@@ -213,6 +226,19 @@ const categoryFromText = (name: string, group = ""): Exclude<Category, "all"> =>
   return "channels";
 };
 
+const SCANNED_REVIEW_CHANNELS: Channel[] = (streamHealth.results as StreamHealthRecord[])
+  .filter((record) => !record.working)
+  .map((record, index) => ({
+    id: `scan-review-${index}-${record.url}`,
+    name: record.name || "Canal sem nome",
+    tvgId: record.tvg_id,
+    url: record.url,
+    logo: record.logo,
+    group: record.group || "Scanner",
+    category: categoryFromText(record.name || "", record.group || ""),
+    healthReason: record.reason || "não aprovado",
+  }));
+
 const parsePlaylist = (raw: string, sourceLabel: string): Channel[] => {
   const lines = raw.split(/\r?\n/);
   const channels: Channel[] = [];
@@ -296,8 +322,10 @@ function StatPill({ icon: Icon, value, label }: { icon: typeof Activity; value: 
 
 export default function Home() {
   const [channels, setChannels] = useState<Channel[]>(FALLBACK_CHANNELS);
+  const [reviewChannels, setReviewChannels] = useState<Channel[]>(SCANNED_REVIEW_CHANNELS);
   const [selected, setSelected] = useState<Channel>(FALLBACK_CHANNELS[0]);
   const [activeCategory, setActiveCategory] = useState<Category>("all");
+  const [activeList, setActiveList] = useState<"working" | "review">("working");
   const [query, setQuery] = useState("");
   const [favorites, setFavorites] = useState<string[]>([]);
   const [loadingPlaylist, setLoadingPlaylist] = useState(true);
@@ -336,8 +364,13 @@ export default function Home() {
           .flatMap((result) => parsePlaylist(result.value.body, result.value.label));
         const unique = Array.from(new Map(parsed.map((channel) => [`${channel.name}-${channel.url}`, channel])).values());
         if (!ignore && unique.length > 0) {
-          setChannels(unique);
-          setSelected((current) => unique.find((channel) => channel.name === current.name) || unique[0]);
+          const approved = unique.filter((channel) => HEALTH_BY_URL.get(channel.url)?.working === true);
+          const review = unique
+            .filter((channel) => HEALTH_BY_URL.get(channel.url)?.working === false)
+            .map((channel) => ({ ...channel, healthReason: HEALTH_BY_URL.get(channel.url)?.reason || "não aprovado" }));
+          setChannels(approved.length > 0 ? approved : unique);
+          setReviewChannels(SCANNED_REVIEW_CHANNELS.length > 0 ? SCANNED_REVIEW_CHANNELS : review);
+          setSelected((current) => (approved.length > 0 ? approved.find((channel) => channel.name === current.name) || approved[0] : unique[0]));
           setPlaylistState("synced");
         } else if (!ignore) {
           setPlaylistState("fallback");
@@ -391,6 +424,13 @@ export default function Home() {
       ignore = true;
     };
   }, []);
+
+  useEffect(() => {
+    const available = activeList === "working" ? channels : reviewChannels;
+    if (available.length > 0 && !available.some((channel) => channel.url === selected.url)) {
+      setSelected(available[0]);
+    }
+  }, [activeList, channels, reviewChannels, selected.url]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -456,14 +496,15 @@ export default function Home() {
     };
   }, [selected]);
 
+  const visibleChannels = activeList === "working" ? channels : reviewChannels;
   const filteredChannels = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
-    return channels.filter((channel) => {
+    return visibleChannels.filter((channel) => {
       const categoryMatch = activeCategory === "all" || channel.category === activeCategory;
       const queryMatch = !normalized || `${channel.name} ${channel.group}`.toLocaleLowerCase().includes(normalized);
       return categoryMatch && queryMatch;
     });
-  }, [activeCategory, channels, query]);
+  }, [activeCategory, query, visibleChannels]);
 
   const featured = useMemo(
     () => channels.filter((channel) => channel.featured || channel.category === "sports").slice(0, 5),
@@ -513,6 +554,10 @@ export default function Home() {
 
         <nav className="mt-12 space-y-1">
           <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.22em] text-slate-600">Biblioteca</p>
+          <div className="mb-3 grid grid-cols-2 gap-2">
+            <button onClick={() => { setActiveList("working"); setActiveCategory("all"); }} className={`rounded-xl border px-2 py-2 text-[10px] font-semibold transition ${activeList === "working" ? "border-emerald-300/20 bg-emerald-300/10 text-emerald-200" : "border-white/[0.07] text-slate-600 hover:text-slate-300"}`}><Check className="mx-auto mb-1 h-3.5 w-3.5" />{channels.length} aprovados</button>
+            <button onClick={() => { setActiveList("review"); setActiveCategory("all"); }} className={`rounded-xl border px-2 py-2 text-[10px] font-semibold transition ${activeList === "review" ? "border-amber-300/20 bg-amber-300/10 text-amber-200" : "border-white/[0.07] text-slate-600 hover:text-slate-300"}`}><AlertTriangle className="mx-auto mb-1 h-3.5 w-3.5" />{reviewChannels.length} revisar</button>
+          </div>
           {categoryItems.map(({ id, label, icon: Icon, count }) => (
             <button
               key={id}
@@ -633,7 +678,7 @@ export default function Home() {
                     <div className="absolute inset-0 grid place-items-center bg-[#080b11]/90 p-6 text-center">
                       <div className="max-w-md">
                         <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-amber-300/10 text-amber-300"><AlertTriangle className="h-6 w-6" /></div>
-                        <p className="font-semibold text-white">Sinal indisponível</p>
+                        <p className="font-semibold text-white">{playerError.includes("autoplay") ? "Pronto para reproduzir" : "Sinal indisponível"}</p>
                         <p className="mt-2 text-xs leading-relaxed text-slate-500">{playerError}</p>
                         <button
                           onClick={() => {
