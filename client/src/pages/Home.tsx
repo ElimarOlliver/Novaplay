@@ -34,11 +34,23 @@ type Channel = {
   id: string;
   name: string;
   url: string;
+  tvgId?: string;
   logo?: string;
   group?: string;
   category: Exclude<Category, "all">;
   resolution?: string;
   featured?: boolean;
+  network?: string;
+  website?: string;
+};
+
+type DatabaseChannel = {
+  id: string;
+  name: string;
+  country: string;
+  categories: string[];
+  network: string | null;
+  website: string | null;
 };
 
 type PlaylistSource = {
@@ -56,6 +68,8 @@ const PLAYLIST_SOURCES: PlaylistSource[] = [
     url: "https://iptv-org.github.io/iptv/countries/br_pluto.m3u",
   },
 ];
+
+const DATABASE_API_URL = "https://iptv-org.github.io/api/channels.json";
 
 const FALLBACK_CHANNELS: Channel[] = [
   {
@@ -227,6 +241,7 @@ const parsePlaylist = (raw: string, sourceLabel: string): Channel[] => {
     channels.push({
       id: `${sourceLabel}-${attributes["tvg-id"] || cleanName}-${url}`,
       name: cleanName,
+      tvgId: attributes["tvg-id"],
       url,
       logo: attributes["tvg-logo"],
       group: attributes["group-title"] || sourceLabel,
@@ -287,6 +302,8 @@ export default function Home() {
   const [favorites, setFavorites] = useState<string[]>([]);
   const [loadingPlaylist, setLoadingPlaylist] = useState(true);
   const [playlistState, setPlaylistState] = useState<"syncing" | "synced" | "fallback">("syncing");
+  const [databaseStats, setDatabaseStats] = useState({ total: 0, brazil: 0 });
+  const [databaseState, setDatabaseState] = useState<"syncing" | "synced" | "fallback">("syncing");
   const [playerError, setPlayerError] = useState("");
   const [isPlaying, setIsPlaying] = useState(false);
   const [buffering, setBuffering] = useState(false);
@@ -332,6 +349,44 @@ export default function Home() {
       }
     };
     loadPlaylists();
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let ignore = false;
+    const loadDatabase = async () => {
+      try {
+        const response = await fetch(DATABASE_API_URL);
+        if (!response.ok) throw new Error("Database indisponível");
+        const database = (await response.json()) as DatabaseChannel[];
+        const brazil = database.filter((channel) => channel.country === "BR");
+        const byId = new Map(database.map((channel) => [channel.id, channel]));
+        if (ignore) return;
+        setDatabaseStats({ total: database.length, brazil: brazil.length });
+        setChannels((current) => current.map((channel) => {
+          const metadata = channel.tvgId ? byId.get(channel.tvgId) : undefined;
+          if (!metadata) return channel;
+          const category = metadata.categories.includes("sports")
+            ? "sports"
+            : metadata.categories.includes("movies")
+              ? "movies"
+              : channel.category;
+          return {
+            ...channel,
+            category,
+            group: metadata.network || channel.group,
+            network: metadata.network || undefined,
+            website: metadata.website || undefined,
+          };
+        }));
+        setDatabaseState("synced");
+      } catch {
+        if (!ignore) setDatabaseState("fallback");
+      }
+    };
+    loadDatabase();
     return () => {
       ignore = true;
     };
@@ -497,6 +552,10 @@ export default function Home() {
             <span className="text-xs font-semibold text-cyan-100">Fonte pública</span>
           </div>
           <p className="text-[11px] leading-relaxed text-slate-500">Links são carregados do projeto iptv-org e podem mudar ou ficar indisponíveis.</p>
+          <div className="mt-3 border-t border-white/10 pt-3 text-[10px] leading-relaxed text-slate-500">
+            <div className="mb-1 flex items-center gap-1.5 text-cyan-200/80"><Library className="h-3 w-3" /> Catálogo sincronizado</div>
+            <span>{databaseState === "synced" ? `${databaseStats.brazil.toLocaleString("pt-BR")} canais BR · ${databaseStats.total.toLocaleString("pt-BR")} no mundo` : "Metadados em sincronização"}</span>
+          </div>
         </div>
       </aside>
 
