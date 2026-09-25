@@ -212,6 +212,10 @@ const parsePlaylist = (raw: string, sourceLabel: string): Channel[] => {
     if (!metadata || !line.trim() || line.startsWith("#")) continue;
 
     const url = line.trim();
+    if (window.location.protocol === "https:" && url.startsWith("http://")) {
+      metadata = "";
+      continue;
+    }
     const name = metadata.split(",").slice(1).join(",").trim() || "Canal sem nome";
     const attributes: Record<string, string> = {};
     const attributePattern = /([\w-]+)="([^"]*)"/g;
@@ -285,6 +289,7 @@ export default function Home() {
   const [playlistState, setPlaylistState] = useState<"syncing" | "synced" | "fallback">("syncing");
   const [playerError, setPlayerError] = useState("");
   const [isPlaying, setIsPlaying] = useState(false);
+  const [buffering, setBuffering] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -302,15 +307,23 @@ export default function Home() {
     let ignore = false;
     const loadPlaylists = async () => {
       try {
-        const responses = await Promise.all(PLAYLIST_SOURCES.map((source) => fetch(source.url)));
-        if (responses.some((response) => !response.ok)) throw new Error("Playlist indisponível");
-        const bodies = await Promise.all(responses.map((response) => response.text()));
-        const parsed = bodies.flatMap((body, index) => parsePlaylist(body, PLAYLIST_SOURCES[index].label));
+        const results = await Promise.allSettled(
+          PLAYLIST_SOURCES.map(async (source) => {
+            const response = await fetch(source.url);
+            if (!response.ok) throw new Error(`${source.label}: ${response.status}`);
+            return { label: source.label, body: await response.text() };
+          }),
+        );
+        const parsed = results
+          .filter((result): result is PromiseFulfilledResult<{ label: string; body: string }> => result.status === "fulfilled")
+          .flatMap((result) => parsePlaylist(result.value.body, result.value.label));
         const unique = Array.from(new Map(parsed.map((channel) => [`${channel.name}-${channel.url}`, channel])).values());
         if (!ignore && unique.length > 0) {
           setChannels(unique);
           setSelected((current) => unique.find((channel) => channel.name === current.name) || unique[0]);
           setPlaylistState("synced");
+        } else if (!ignore) {
+          setPlaylistState("fallback");
         }
       } catch {
         if (!ignore) setPlaylistState("fallback");
@@ -329,30 +342,53 @@ export default function Home() {
     if (!video || !selected?.url) return;
     setPlayerError("");
     setIsPlaying(false);
+    setBuffering(true);
     hlsRef.current?.destroy();
     hlsRef.current = null;
     video.removeAttribute("src");
     video.load();
 
     const onError = () => {
+      setBuffering(false);
       setPlayerError("Este link não respondeu no navegador. Ele pode estar offline, protegido ou bloqueado por região.");
       setIsPlaying(false);
     };
     video.addEventListener("error", onError);
 
-    if (video.canPlayType("application/vnd.apple.mpegurl")) {
-      video.src = selected.url;
-      video.load();
-    } else if (Hls.isSupported()) {
+    if (Hls.isSupported()) {
       const hls = new Hls({ enableWorker: true, lowLatencyMode: true, backBufferLength: 30 });
+      let recoveryAttempts = 0;
       hlsRef.current = hls;
       hls.loadSource(selected.url);
       hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        video.muted = true;
+        video.play().catch(() => {
+          setPlayerError("O canal carregou, mas o navegador bloqueou o autoplay. Clique no botão de reprodução.");
+        });
+      });
       hls.on(Hls.Events.ERROR, (_event, data) => {
-        if (data.fatal) {
-          setPlayerError("Não foi possível carregar este canal. Verifique se o link público ainda está ativo.");
-          hls.destroy();
+        if (!data.fatal) return;
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR && recoveryAttempts < 2) {
+          recoveryAttempts += 1;
+          hls.startLoad();
+          return;
         }
+        if (data.type === Hls.ErrorTypes.MEDIA_ERROR && recoveryAttempts < 2) {
+          recoveryAttempts += 1;
+          hls.recoverMediaError();
+          return;
+        }
+        setBuffering(false);
+        setPlayerError("Não foi possível carregar este canal. O link pode estar offline, sem CORS ou bloqueado por região.");
+        hls.destroy();
+      });
+    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = selected.url;
+      video.load();
+      video.muted = true;
+      video.play().catch(() => {
+        setPlayerError("O canal carregou, mas o navegador bloqueou o autoplay. Clique no botão de reprodução.");
       });
     } else {
       setPlayerError("Este navegador não oferece suporte a reprodução HLS.");
@@ -527,7 +563,8 @@ export default function Home() {
               <div className="relative overflow-hidden rounded-[22px] border border-white/[0.08] bg-[#0c111a] shadow-[0_28px_80px_rgba(0,0,0,0.28)]">
                 <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_15%,rgba(34,211,238,0.15),transparent_32%),radial-gradient(circle_at_85%_85%,rgba(124,58,237,0.16),transparent_36%)]" />
                 <div className="relative aspect-video min-h-[260px] w-full overflow-hidden bg-[#070a0f] sm:min-h-0">
-                  <video ref={videoRef} className="h-full w-full object-contain" controls playsInline onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} />
+                  <video ref={videoRef} className="h-full w-full object-contain" controls playsInline onPlay={() => setIsPlaying(true)} onPlaying={() => { setIsPlaying(true); setBuffering(false); setPlayerError(""); }} onPause={() => setIsPlaying(false)} onWaiting={() => setBuffering(true)} onCanPlay={() => setBuffering(false)} />
+                  {buffering && !playerError && <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/10 bg-black/60 px-4 py-2 text-xs font-semibold text-white backdrop-blur-md"><span className="mr-2 inline-block h-2 w-2 animate-pulse rounded-full bg-cyan-300" />Carregando sinal</div>}
                   {!isPlaying && !playerError && (
                     <button onClick={() => videoRef.current?.play().catch(() => setPlayerError("O navegador bloqueou o início automático. Use os controles do player."))} className="absolute inset-0 grid place-items-center bg-gradient-to-t from-black/50 via-transparent to-black/10" aria-label={`Reproduzir ${selected.name}`}>
                       <span className="grid h-16 w-16 place-items-center rounded-full bg-cyan-300 text-slate-950 shadow-[0_0_0_10px_rgba(103,232,249,0.12),0_14px_36px_rgba(34,211,238,0.28)] transition hover:scale-105 active:scale-95"><Play className="ml-1 h-6 w-6 fill-current" /></span>
@@ -539,7 +576,21 @@ export default function Home() {
                         <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-amber-300/10 text-amber-300"><AlertTriangle className="h-6 w-6" /></div>
                         <p className="font-semibold text-white">Sinal indisponível</p>
                         <p className="mt-2 text-xs leading-relaxed text-slate-500">{playerError}</p>
-                        <button onClick={() => setSelected({ ...selected })} className="mt-4 rounded-lg border border-white/10 px-3 py-2 text-xs font-semibold text-slate-300 transition hover:bg-white/[0.06]">Tentar novamente</button>
+                        <button
+                          onClick={() => {
+                            if (videoRef.current && videoRef.current.readyState > 0) {
+                              videoRef.current.play().then(() => {
+                                setPlayerError("");
+                                setIsPlaying(true);
+                              }).catch(() => setSelected({ ...selected }));
+                            } else {
+                              setSelected({ ...selected });
+                            }
+                          }}
+                          className="mt-4 rounded-lg border border-white/10 px-3 py-2 text-xs font-semibold text-slate-300 transition hover:bg-white/[0.06]"
+                        >
+                          Reproduzir novamente
+                        </button>
                       </div>
                     </div>
                   )}
