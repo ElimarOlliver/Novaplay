@@ -522,6 +522,18 @@ export default function Home() {
   };
 
   const selectCategory = (category: Category) => {
+    const workingCount = category === "all" ? channels.length : channels.filter((channel) => channel.category === category).length;
+    const reviewCount = category === "all" ? reviewChannels.length : reviewChannels.filter((channel) => channel.category === category).length;
+    const nextList = category === "all" || workingCount > 0 ? "working" : "review";
+    const nextPool = nextList === "working" ? channels : reviewChannels;
+    const nextChannel = category === "all" ? nextPool[0] : nextPool.find((channel) => channel.category === category);
+    if (category === "all" || workingCount > 0) {
+      setActiveList("working");
+    } else if (reviewCount > 0) {
+      setActiveList("review");
+      toast.info(`Nenhum stream de ${category === "sports" ? "esportes" : "filmes"} foi aprovado no último scanner. Exibindo os links para revisão.`);
+    }
+    if (nextChannel) setSelected(nextChannel);
     setActiveCategory(category);
     setShowMobileMenu(false);
   };
@@ -529,8 +541,8 @@ export default function Home() {
   const categoryItems: Array<{ id: Category; label: string; icon: typeof Tv; count?: number }> = [
     { id: "all", label: "Descobrir", icon: LayoutGrid, count: channels.length },
     { id: "channels", label: "Canais", icon: Tv, count: channels.filter((channel) => channel.category === "channels").length },
-    { id: "sports", label: "Esportes", icon: Trophy, count: channels.filter((channel) => channel.category === "sports").length },
-    { id: "movies", label: "Filmes", icon: Film, count: channels.filter((channel) => channel.category === "movies").length },
+    { id: "sports", label: "Esportes", icon: Trophy, count: channels.filter((channel) => channel.category === "sports").length || reviewChannels.filter((channel) => channel.category === "sports").length },
+    { id: "movies", label: "Filmes", icon: Film, count: channels.filter((channel) => channel.category === "movies").length || reviewChannels.filter((channel) => channel.category === "movies").length },
   ];
 
   return (
@@ -705,7 +717,7 @@ export default function Home() {
                   <div className="flex items-center gap-2"><button onClick={() => toggleFavorite(selected)} className={`grid h-9 w-9 place-items-center rounded-lg border transition ${favorites.includes(selected.id) ? "border-rose-300/20 bg-rose-300/10 text-rose-300" : "border-white/10 bg-white/[0.03] text-slate-500 hover:text-rose-300"}`} aria-label="Favoritar canal"><Heart className={`h-4 w-4 ${favorites.includes(selected.id) ? "fill-current" : ""}`} /></button><button onClick={() => navigator.clipboard?.writeText(selected.url).then(() => toast.success("Link copiado"))} className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-xs font-semibold text-slate-400 transition hover:bg-white/[0.07] hover:text-white">Copiar link</button></div>
                 </div>
               </div>
-              <div className="mt-4 flex flex-wrap gap-2"><StatPill icon={Radio} value={String(channels.length)} label="canais" /><StatPill icon={Trophy} value={String(channels.filter((channel) => channel.category === "sports").length)} label="esportes" /><StatPill icon={Film} value={String(channels.filter((channel) => channel.category === "movies").length)} label="filmes" /></div>
+              <div className="mt-4 flex flex-wrap gap-2"><StatPill icon={Radio} value={String(channels.length)} label="canais aprovados" /><StatPill icon={Trophy} value={String(channels.filter((channel) => channel.category === "sports").length || reviewChannels.filter((channel) => channel.category === "sports").length)} label="esportes catalogados" /><StatPill icon={Film} value={String(channels.filter((channel) => channel.category === "movies").length || reviewChannels.filter((channel) => channel.category === "movies").length)} label="filmes catalogados" /></div>
             </div>
 
             <aside className="min-w-0 xl:pt-[62px]">
