@@ -1,11 +1,11 @@
 # Relatório do scanner de streams do NOVA PLAY
 
-**Data do teste:** 2026-09-25T01:31:03Z  
+**Data do teste:** 2026-09-28T04:54:06Z
 **Fonte:** playlists públicas atuais do iptv-org para Brasil.
 
 ## Conclusão
 
-O scanner encontrou **72 streams aprovados** e **316 links para revisão**, em **388 URLs únicas**. A lista principal do aplicativo foi configurada para mostrar somente os aprovados. Os demais ficam em uma lista separada para teste manual.
+O scanner encontrou **68 streams aprovados** e **319 links para revisão**, em **387 URLs únicas**. A lista principal do aplicativo foi configurada para mostrar somente os aprovados. Os demais ficam em uma lista separada para teste manual.
 
 > “Aprovado” significa que o manifesto respondeu, foi identificado como HLS ou vídeo, o primeiro segmento respondeu e o cabeçalho CORS foi encontrado. Isso não garante disponibilidade futura nem qualidade contínua de áudio e imagem.
 
@@ -13,12 +13,12 @@ O scanner encontrou **72 streams aprovados** e **316 links para revisão**, em *
 
 | Motivo | Quantidade |
 |---|---:|
-| Primeiro segmento retornou erro HTTP (`segment_httperror`) | 116 |
+| Primeiro segmento retornou erro HTTP (`segment_httperror`) | 113 |
 | Link HTTP bloqueado em página HTTPS (`mixed_content_http`) | 89 |
-| Falha de rede ou DNS (`network_urlerror`) | 37 |
+| Falha de rede ou DNS (`network_urlerror`) | 38 |
 | CORS ausente no navegador (`cors_missing`) | 31 |
+| Recurso não encontrado (404) (`http_404`) | 19 |
 | Acesso proibido (403) (`http_403`) | 17 |
-| Recurso não encontrado (404) (`http_404`) | 14 |
 | Não é HLS nem vídeo direto (`not_hls_or_video`) | 5 |
 | Requisição inválida (400) (`http_400`) | 2 |
 | Timeout no gateway (504) (`http_504`) | 2 |

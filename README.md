@@ -18,6 +18,8 @@ pnpm dev
 
 Depois, abra o endereço mostrado pelo Vite, normalmente `http://localhost:5173`.
 
+Para o passo a passo completo de instalação, execução no computador e teste pelo Android, consulte [`EXECUTAR-NA-MAQUINA.md`](EXECUTAR-NA-MAQUINA.md). O projeto atual é web responsivo e ainda não contém um APK nativo.
+
 ## Validar e gerar produção
 
 ```bash
@@ -40,7 +42,7 @@ pnpm start
 
 ## Relatório do scanner
 
-O relatório e as listas geradas estão em `SCAN-REPORT.md` e no diretório `/home/ubuntu/iptv-scan` durante o desenvolvimento local. O arquivo `client/src/data/stream-health.json` é usado pelo frontend para separar os links conforme o último teste.
+O relatório e as listas geradas estão em `SCAN-REPORT.md` e o arquivo `client/src/data/stream-health.json` é usado pelo frontend para separar os links conforme o último teste. Procedimentos de staging, deploy e rollback estão em `OPERATIONS.md`; os critérios de aceite estão em `DEFINITION-OF-DONE.md`.
 
 ## Observação sobre o GitHub
 
